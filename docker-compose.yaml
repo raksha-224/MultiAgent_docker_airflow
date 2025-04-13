@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  airflow-worker:
+    image: data-collector:v1
+    volumes:
+      - ./dags:/opt/airflow/dags
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/dags/application_default_credentials.json
+
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+
+  webserver:
+    image: data-collector:v1
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__DEFAULT_USER: "admin"
+      AIRFLOW__WEBSERVER__DEFAULT_USER_PASSWORD: "admin"
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/dags/application_default_credentials.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    command: airflow webserver
+
+  scheduler:
+    image: data-collector:v1
+    restart: always
+    depends_on:
+      webserver:
+        condition: service_started
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/dags/application_default_credentials.json
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: airflow scheduler
+
+  init:
+    image: data-collector:v1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/dags/application_default_credentials.json
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    command: >
+      bash -c "
+      airflow db init &&
+      airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com
+      "
+
+volumes:
+  postgres-db-volume:
