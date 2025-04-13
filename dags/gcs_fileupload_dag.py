@@ -26,7 +26,7 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-# Define the DAG
+# Define the DAG with every 10 mins scheduling
 dag = DAG(
     'gcs_file_upload_dag',
     default_args=default_args,
